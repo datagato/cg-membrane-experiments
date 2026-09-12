@@ -1,0 +1,24 @@
+[project]
+name = "cg-membrane-experiments"
+version = "0.1.0"
+description = "Martini 3-based coarse-grained MD, CG <-> atomistic conversion, and movie rendering for membrane proteins (OpenMM)."
+readme = "README.md"
+license = "MIT"
+authors = [{ name = "Micheleen Harris" }]
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.26",
+    "biopython>=1.84",
+    "openmm>=8.4",
+    "pdbfixer>=1.12",
+]
+
+[project.optional-dependencies]
+# NVIDIA GPU support for `--gpu` in the MD script (Linux/Windows only).
+cuda12 = ["openmm[cuda12]>=8.4"]
+
+# Installs src/cg_membrane_experiments (shared Martini constants) so the
+# scripts can `from cg_membrane_experiments.constants import ...`.
+[build-system]
+requires = ["uv_build>=0.8.0,<0.9"]
+build-backend = "uv_build"
