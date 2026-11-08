@@ -11,6 +11,7 @@ dependencies = [
     "biopython>=1.84",
     "openmm>=8.4",
     "pdbfixer>=1.12",
+    "pdb-tools>=2.7",
 ]
 
 [project.optional-dependencies]

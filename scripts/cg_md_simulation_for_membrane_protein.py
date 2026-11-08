@@ -188,6 +188,13 @@ _SS_SG_MAX_DIST_A = 2.5          # Å — SG–SG distance that defines a bridge
 # (unresolved loop), so missing regions are not fused by a stiff 0.35 nm bond.
 _BB_BOND_MAX_NM = 0.55           # nm
 
+# --tm-residues sanity checks: each range must be mostly present in the input,
+# helical in the input (CG cannot fold a coil into a helix), and hydrophobic.
+_TM_MIN_COVERAGE         = 0.5           # fraction of range residues present
+_TM_MIN_HELIX_FRACTION   = 0.5           # fraction of present residues helical
+_TM_MIN_HYDROPHOBIC_FRAC = 0.5           # fraction of present residues in _TM_HYDROPHOBIC
+_TM_HYDROPHOBIC          = set('AILMFVWC')
+
 # Protein residue bead definitions: (bead_type, bead_label, charge, [atom_names])
 _RESIDUE_BEADS = {
     'GLY': [('BB', 'BB',  0.0, ['N', 'CA', 'C', 'O'])],
@@ -1662,6 +1669,84 @@ def parse_tm_ranges(spec: str) -> list:
     return ranges
 
 
+class TMRangeError(ValueError):
+    """--tm-residues ranges failed the sanity checks in check_tm_ranges."""
+
+
+def check_tm_ranges(protein: dict, tm_ranges: list, strict: bool = True) -> None:
+    """Check each --tm-residues range before the protein is oriented on it.
+
+    A range is flagged if it is
+      * missing:     fewer than _TM_MIN_COVERAGE of its residues are in the input
+                     (wrong chain id, or numbering that doesn't match the file,
+                     e.g. UniProt numbering for a PDB with author numbering);
+      * not helical: fewer than _TM_MIN_HELIX_FRACTION of its residues are helix
+                     in the input secondary structure. The CG model keeps the
+                     input secondary structure, so a coil or strand stays one;
+      * polar:       fewer than _TM_MIN_HYDROPHOBIC_FRAC of its residues are
+                     hydrophobic (AILMFVWC).
+    Prints one summary line per range. Raises TMRangeError if any range is
+    flagged and strict is True; otherwise prints a warning and returns.
+    """
+    from Bio.PDB.Polypeptide import index_to_one, three_to_index
+
+    residue_names = protein['residue_names']
+    residue_seq_info = protein['residue_seq_info']
+    bb_angles = protein['bb_angles']
+    chains = sorted({ch for ch, _ in residue_seq_info})
+
+    print(f"  Checking {len(tm_ranges)} --tm-residues range(s):")
+    failures = []
+    for chain, lo, hi in tm_ranges:
+        label = f"{chain}:{lo}-{hi}"
+        if chain not in chains:
+            print(f"    {label:<14} chain {chain!r} not in structure")
+            failures.append(f"{label}: chain {chain!r} is not in the structure "
+                            f"(chains: {', '.join(chains)})")
+            continue
+
+        idxs = [ri for ri, (ch, rs) in enumerate(residue_seq_info)
+                if ch == chain and lo <= rs <= hi]
+        n_expected = hi - lo + 1
+        coverage = len(idxs) / n_expected if n_expected > 0 else 0.0
+        if coverage < _TM_MIN_COVERAGE:
+            present = [rs for ch, rs in residue_seq_info if ch == chain]
+            print(f"    {label:<14} {len(idxs)}/{n_expected} residues present")
+            failures.append(f"{label}: missing — only {len(idxs)}/{n_expected} "
+                            f"residues are in the structure (chain {chain} has "
+                            f"residues {min(present)}-{max(present)})")
+            continue
+
+        seq = ''.join(index_to_one(three_to_index(residue_names[ri]))
+                      for ri in idxs)
+        helix_frac = sum(abs(bb_angles[ri] - _BB_ANG_HELIX) < 1e-6
+                         for ri in idxs) / len(idxs)
+        hydrophobic_frac = sum(aa in _TM_HYDROPHOBIC for aa in seq) / len(seq)
+
+        problems = []
+        if helix_frac < _TM_MIN_HELIX_FRACTION:
+            problems.append(f"not helical ({helix_frac:.0%} helix)")
+        if hydrophobic_frac < _TM_MIN_HYDROPHOBIC_FRAC:
+            problems.append(f"mostly polar ({hydrophobic_frac:.0%} hydrophobic)")
+        status = "; ".join(problems) if problems else "ok"
+        print(f"    {label:<14} {len(idxs)}/{n_expected} present, "
+              f"{helix_frac:.0%} helix, {hydrophobic_frac:.0%} hydrophobic  "
+              f"{seq}  [{status}]")
+        if problems:
+            failures.append(f"{label} ({seq}): {'; '.join(problems)}")
+
+    if not failures:
+        return
+    lines = (["--tm-residues check failed:"]
+             + [f"  - {f}" for f in failures]
+             + ["Ranges use the residue numbering in the input file, which often "
+                "differs from UniProt numbering. TM helices must already be "
+                "helical in the input; the CG model does not fold them."])
+    if strict:
+        raise TMRangeError("\n".join(lines + ["Pass --skip-tm-checks to run anyway."]))
+    print("  WARNING: " + "\n  ".join(lines))
+
+
 def _rotation_align_vectors(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """Rotation matrix R such that R @ a is parallel to b (Rodrigues)."""
     a = a / (np.linalg.norm(a) + 1e-12)
@@ -1791,6 +1876,7 @@ def run_cg_membrane_md(
     sa_t_high: float = DEFAULT_SA_T_HIGH_K,
     sa_steps_per_half: int = DEFAULT_SA_STEPS_HALF,
     tm_residues: list = None,
+    check_tm: bool = True,
 ) -> None:
     pdb_path = Path(pdb_path)
     out_dir  = Path(output_dir) if output_dir else pdb_path.parent
@@ -1811,6 +1897,9 @@ def run_cg_membrane_md(
     B_prot  = len(protein['beads'])
     print(f"  {N_res} residues → {B_prot} CG beads  "
           f"({len(protein['bond_list'])} bonds)")
+
+    if tm_residues:
+        check_tm_ranges(protein, tm_residues, strict=check_tm)
 
     if refine:
         print(f"\n  [Refine] CG water pre-equilibration "
@@ -2379,6 +2468,10 @@ def main() -> None:
                              "to Z and the TM region centred at the bilayer "
                              "midplane. If omitted, the input must already be "
                              "oriented with its TM helices along Z.")
+    parser.add_argument('--skip-tm-checks', action='store_true',
+                        help="Run even if a --tm-residues range is missing from "
+                             "the structure, not helical in the input, or mostly "
+                             "polar (these are reported as warnings instead)")
     parser.add_argument('--refine', action='store_true',
                         help='Enable CG NVT pre-equilibration in water before '
                              'membrane embedding (useful for predicted/disordered '
@@ -2391,43 +2484,47 @@ def main() -> None:
                              'structures.')
 
     args = parser.parse_args()
-    run_cg_membrane_md(
-        pdb_path=args.pdb,
-        output_dir=args.output_dir,
-        lipid_type=args.lipid,
-        temperature=args.temperature,
-        pressure=args.pressure,
-        surface_tension=args.surface_tension,
-        padding_nm=args.padding,
-        water_layer_nm=args.water_layer,
-        z_po4_nm=args.z_po4,
-        equil_timestep=args.equil_timestep,
-        prod_timestep=args.prod_timestep,
-        nvt_steps=args.nvt_steps,
-        npt_steps=args.npt_steps,
-        early_prod_steps=args.early_prod_steps,
-        stability_steps=args.stability_steps,
-        report_interval=args.report_interval,
-        snapshot_interval=args.snapshot_interval,
-        use_gpu=args.gpu,
-        strip_water_in_output=not args.keep_water,
-        save_dcd=args.save_dcd,
-        refine=args.refine,
-        pre_equil_steps=args.pre_equil_steps,
-        k_nvt=args.k_nvt,
-        use_enm=args.use_enm,
-        enm_k=args.enm_k,
-        enm_sheet=args.enm_sheet,
-        enm_interchain=args.enm_interchain,
-        enm_cutoff=args.enm_cutoff,
-        enm_interchain_k=args.enm_interchain_k,
-        detect_disulfides=not args.no_disulfides,
-        n_replicas=args.n_replicas,
-        sa_cycles=args.sa_cycles,
-        sa_t_high=args.sa_t_high,
-        sa_steps_per_half=args.sa_steps_per_half,
-        tm_residues=parse_tm_ranges(args.tm_residues) if args.tm_residues else None,
-    )
+    try:
+        run_cg_membrane_md(
+            pdb_path=args.pdb,
+            output_dir=args.output_dir,
+            lipid_type=args.lipid,
+            temperature=args.temperature,
+            pressure=args.pressure,
+            surface_tension=args.surface_tension,
+            padding_nm=args.padding,
+            water_layer_nm=args.water_layer,
+            z_po4_nm=args.z_po4,
+            equil_timestep=args.equil_timestep,
+            prod_timestep=args.prod_timestep,
+            nvt_steps=args.nvt_steps,
+            npt_steps=args.npt_steps,
+            early_prod_steps=args.early_prod_steps,
+            stability_steps=args.stability_steps,
+            report_interval=args.report_interval,
+            snapshot_interval=args.snapshot_interval,
+            use_gpu=args.gpu,
+            strip_water_in_output=not args.keep_water,
+            save_dcd=args.save_dcd,
+            refine=args.refine,
+            pre_equil_steps=args.pre_equil_steps,
+            k_nvt=args.k_nvt,
+            use_enm=args.use_enm,
+            enm_k=args.enm_k,
+            enm_sheet=args.enm_sheet,
+            enm_interchain=args.enm_interchain,
+            enm_cutoff=args.enm_cutoff,
+            enm_interchain_k=args.enm_interchain_k,
+            detect_disulfides=not args.no_disulfides,
+            n_replicas=args.n_replicas,
+            sa_cycles=args.sa_cycles,
+            sa_t_high=args.sa_t_high,
+            sa_steps_per_half=args.sa_steps_per_half,
+            tm_residues=parse_tm_ranges(args.tm_residues) if args.tm_residues else None,
+            check_tm=not args.skip_tm_checks,
+        )
+    except TMRangeError as exc:
+        parser.exit(2, f"\nERROR: {exc}\n")
 
 
 if __name__ == '__main__':

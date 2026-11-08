@@ -63,6 +63,7 @@ dependencies = [
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "openmm" },
+    { name = "pdb-tools" },
     { name = "pdbfixer" },
 ]
 
@@ -77,6 +78,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=1.26" },
     { name = "openmm", specifier = ">=8.4" },
     { name = "openmm", extras = ["cuda12"], marker = "extra == 'cuda12'", specifier = ">=8.4" },
+    { name = "pdb-tools", specifier = ">=2.7" },
     { name = "pdbfixer", specifier = ">=1.12" },
 ]
 provides-extras = ["cuda12"]
@@ -358,6 +360,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/da/80/5ff0af5933abd893d95a14ea6ec9e4906d90cebe92d726a13aa9d56ed3da/openmm_cuda_12-8.6.1-py3-none-manylinux_2_34_aarch64.whl", hash = "sha256:7da41cf9c7593fe10e1cde727c8c9cf5e0efd0209e272d798d0b0053996d64f6", size = 2164880, upload-time = "2026-09-11T21:13:45.757Z" },
     { url = "https://files.pythonhosted.org/packages/a6/c3/4856aa70ed238e43a4092ddfbff39e261cea4bfac3062f6eb994aa52c837/openmm_cuda_12-8.6.1-py3-none-manylinux_2_34_x86_64.whl", hash = "sha256:7338c20f052bff983da8715a740b8191502283cbc7020382c1c60b4c572b7da8", size = 2289533, upload-time = "2026-09-11T21:13:48.146Z" },
     { url = "https://files.pythonhosted.org/packages/1d/04/dbcdd437108bbd27477c708149475ad960ab307726ada02cf828a69a098a/openmm_cuda_12-8.6.1-py3-none-win_amd64.whl", hash = "sha256:b00e9eee60da7ac390d407b12825a1d31e400a29213379d4b9c90567648be458", size = 2007117, upload-time = "2026-09-11T21:13:50.252Z" },
+]
+
+[[package]]
+name = "pdb-tools"
+version = "2.7.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/98/9c/a80f76e97d56a160b025d0b556b33541e59c83fcc39423bb2404b68808a6/pdb_tools-2.7.0.tar.gz", hash = "sha256:a79bc2747de65dc0ef1866e05d7ab4a649e0510f87c919e3a9aed5a3e17713fd", size = 47957, upload-time = "2026-06-09T22:07:10.856Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7f/06/27fa27a99de39d19000c673250585b0bab19591f8250699d10f232fcf9a9/pdb_tools-2.7.0-py3-none-any.whl", hash = "sha256:6a15f9f90a2e80c282bdbb82ac8702708fc5f23727d1adfd5dfd7d329cb089e3", size = 125392, upload-time = "2026-06-09T22:07:09.619Z" },
 ]
 
 [[package]]

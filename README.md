@@ -22,6 +22,7 @@ scripts/
 ├── cg_md_simulation_for_membrane_protein.py # CG membrane MD pipeline (OpenMM)
 ├── martini_cg_to_atomistic_backmap.py       # CG -> atomistic, optional minimization
 ├── cg_structures_to_movie.py                # structure sequence -> .mp4
+├── view_cg_membrane.pml                     # PyMOL view of a CG protein/membrane system
 └── data/tcr_experiments/
     ├── 1OGA.cif                             # JM22 TCR / HLA-A2-flu peptide complex
     └── 2NW2.cif                             # ELS4 TCR (1.4 Å)
@@ -118,6 +119,23 @@ A self-contained CG-MD pipeline in OpenMM. It takes a `.pdb` or `.cif` file and 
 helices must lie along Z. You can either pre-orient the structure (OPM/PPM,
 CHARMM-GUI) or pass `--tm-residues` and let the script align and center it.
 
+Before orienting, the script checks each `--tm-residues` range and stops with an
+error if the range:
+
+- **is missing:** fewer than half of its residues are in the input, or the chain
+  doesn't exist;
+- **isn't helical:** fewer than half of its residues are helix in the input. The CG
+  model keeps the input secondary structure, so a coil or β-strand won't become a
+  helix during the run;
+- **is mostly polar:** fewer than half of its residues are hydrophobic (A, I, L, M,
+  F, V, W, C).
+
+Ranges use the residue numbering **in the input file**. That often differs from
+UniProt numbering: for example, UniProt's TRAC TM (116-138) falls on constant-domain
+β-strands in PDB 1OGA, which doesn't include the TM helices at all. If a TM segment
+really does break these rules (e.g. a short, kinked or charged helix), pass
+`--skip-tm-checks` to turn the errors into warnings.
+
 ```bash
 # Pre-oriented input
 uv run scripts/cg_md_simulation_for_membrane_protein.py my_protein.pdb
@@ -144,7 +162,8 @@ Commonly used options (run with `--help` for the full list and defaults):
 |---|---|
 | `-o, --output-dir` | Output directory (default: same directory as the input) |
 | `--lipid {POPC,DPPC,POPE}` | Bilayer lipid (default POPC) |
-| `--tm-residues` | TM helix ranges to align along Z, e.g. `A:34-58,B:10-30` |
+| `--tm-residues` | TM helix ranges to align along Z, e.g. `A:34-58,B:10-30` (checked before use; see above) |
+| `--skip-tm-checks` | Warn instead of stopping when a `--tm-residues` range fails the checks |
 | `--gpu` | Use the CUDA platform. If CUDA isn't available, including on macOS, the script falls back to CPU |
 | `--stability-steps` | Length of the final production run (default 50,000,000 steps = 1 µs) |
 | `--save-dcd`, `--snapshot-interval N` | Save a trajectory or numbered PDB snapshots during stability production |
@@ -238,6 +257,54 @@ uv run scripts/cg_structures_to_movie.py protein.cif cg_*.pdb -o preview.mp4 \
 | `--fast` | Use PyMOL `draw` instead of `ray` (faster, lower quality) |
 | `--keep-frames` | Keep `<output>_frames/` (PNGs, `render.pml`, `movie_meta.json`) |
 
+### 5. `view_cg_membrane.pml`: interactive PyMOL view of a CG system
+
+A PyMOL script for looking at any PDB written by the MD script (minimized, nvt,
+npt, early_prod, repacked, stability, or snapshot frames), including multimers.
+Pass the PDB first and the script second:
+
+```bash
+pymol runs/2NW2/2NW2_cg_stability.pdb scripts/view_cg_membrane.pml
+```
+
+What it sets up:
+
+- **Protein bonds.** The MD output only has `CONECT` records for lipids, and the
+  protein beads are too far apart for PyMOL to bond them automatically. The script
+  adds BB–SC1–SC2–SC3 bonds within each residue and BB–BB bonds between
+  consecutive residues of the same chain.
+- **Separate objects.** Each protein chain becomes its own object (`chain_A`,
+  `chain_B`, …), along with `membrane` (`resn LIP`) and `ions` (`NA`/`CL`), so
+  each can be toggled in the object panel. The original object is disabled.
+- **Styling.** Protein beads are spheres with one color per chain. Lipids are
+  transparent grey sticks with orange PO4 headgroup beads, the periodic box is
+  drawn, and the camera looks along the membrane plane with Z pointing up.
+
+Useful commands once it's loaded:
+
+| Command | Effect |
+|---|---|
+| `turn x, 90` | Switch to a top-down view of the bilayer |
+| `show spheres, ions` | Show the Na⁺/Cl⁻ ions (hidden by default) |
+| `disable chain_*` then `enable chain_A` | Look at a single subunit |
+| `select iface, chain_A within 6 of membrane` | Beads of chain A within 6 Å of the lipids |
+| `ray 2000,1500` then `png view.png, dpi=300` | Save a high-resolution image |
+
+To view a trajectory saved with `--save-dcd`, load the PDB and the DCD first, then
+run the script:
+
+```
+load runs/2NW2/2NW2_cg_stability.pdb
+load_traj runs/2NW2/2NW2_cg_stability.dcd, 2NW2_cg_stability
+@scripts/view_cg_membrane.pml
+```
+
+> **Periodic boundaries:** each frame is saved wrapped into the box, one molecule at
+> a time. A chain stays intact, but chains that aren't bonded to each other (by
+> `--enm-interchain` springs or an inter-chain disulfide) can end up a box length
+> apart. For trajectories, `pbc_unwrap <object>` stops molecules from jumping
+> across the box between frames.
+
 ## Example end-to-end workflow
 
 ```bash
@@ -255,6 +322,9 @@ uv run scripts/martini_cg_to_atomistic_backmap.py runs/2NW2/2NW2_cg_stability.pd
 uv run scripts/cg_structures_to_movie.py scripts/data/tcr_experiments/2NW2.cif \
     runs/2NW2/2NW2_cg_{minimized,nvt,npt,early_prod,repacked,stability}.pdb \
     -o movies/2NW2.mp4
+
+# 4. Inspect the final CG system interactively
+pymol runs/2NW2/2NW2_cg_stability.pdb scripts/view_cg_membrane.pml
 ```
 
 ## License

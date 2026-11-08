@@ -3,7 +3,7 @@ Backmap a Martini 3-based coarse-grained (CG) protein structure back to an
 all-atom (atomistic) structure, with an optional energy-minimization step to
 remove steric clashes and idealize local geometry.
 
-This is the *reverse* of scripts/tmp/atomistic_to_martini_cg_conversion.py.
+This is the *reverse* of scripts/atomistic_to_martini_cg_conversion.py.
 Backmapping is an inherently under-determined problem: each CG bead is the
 centroid of several heavy atoms (see MARTINI_RESIDUE_BEADS in
 src/cg_membrane_experiments/constants.py), so the atomistic detail collapsed into a bead
